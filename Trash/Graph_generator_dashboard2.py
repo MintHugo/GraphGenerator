@@ -1,0 +1,503 @@
+
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+import dash
+import dash_core_components as dcc
+import dash_html_components as html
+from dash.dependencies import Output, Input, State
+import dash_bootstrap_components as dbc
+from dash.exceptions import PreventUpdate
+import webbrowser
+from threading import Timer
+from sqlalchemy import create_engine
+#import MySQLdb
+import warnings
+import math
+
+
+"""This code is related to a dashboard and uses data from the database. Therefore, when launching the dashboard, it could take like 1-2 minutes
+before it pops up on your screen.
+
+The Dashboard is a grapg generator which can make a graph based on a date range, based on the inputs in the dashboard.
+
+The graph generator can create a Mint Tower Fund, combined with up to 3 different indices based on a selection in the dashboard.
+
+Also, there are statistics added in a table below the actual graph plot which should give statistics of the securities related to the selected time period"""
+
+warnings.filterwarnings("ignore")
+
+global df_sql, df_indices
+#db = MySQLdb.connect(host="192.168.31.12",    
+#                         user="mint_guest",        
+#                         passwd="B3ursplein5!",
+#                         db="HistoricalData")
+engine = create_engine('mysql://mint_guest:B3ursplein5!@192.168.31.12:3306/HistoricalData')
+
+
+myQuery4 = '''SELECT distinct BloombergTicker FROM HistoricalData.Product_Static where HistoricalType="Index"'''
+compare_tickers = pd.read_sql_query(myQuery4, con = engine)
+compare_tickers = compare_tickers.BloombergTicker.tolist()
+
+
+myQuery5 = '''SELECT * FROM DailyData2 WHERE Ticker IN %(compare_tickers)s'''
+df_indices = pd.read_sql_query(myQuery5, params= {'compare_tickers': compare_tickers}, con =engine)
+
+
+
+df_sql = pd.read_sql('SELECT * FROM HistoricalData.MintFundClasses_NAV', con=engine)
+#df_indices = pd.read_sql('SELECT * FROM HistoricalData.DailyData2 where Ticker = , con=engine)
+
+
+app = dash.Dash(__name__,external_stylesheets = [dbc.themes.SANDSTONE])
+
+
+#this function activates the code when clicking on "Plot graph" button in the dashboard
+def update_sheet(clicks, bid, ask, checklistclassPLOT, checklistindexPLOT, checklistindexPLOT2, checklistindexPLOT3, checklistindexPLOT5, checklistindexPLOT6): #checklistindexPLOT4, 
+    
+    if clicks == 0:
+        raise PreventUpdate
+            
+    else:
+        
+        def create_variables():
+            global Datebefore, Datenow, Fund_Name, Index_Name, Index_Name2, Index_Name3, Text, Legend, Axis_color
+            Datebefore = '2021-10-10'
+            Datenow = '2021-11-31'
+            Fund_Name = 'Lead - EUR'
+            Index_Name = 'AEX Index'
+            Index_Name2 = 'CAC Index'
+            Index_Name3 = 'DAX Index'
+            #Text = checklistindexPLOT4
+            Legend = checklistindexPLOT5
+            Axis_color = checklistindexPLOT6
+        create_variables()
+        
+        #this function creates the right dataframe based on the time interval selected in the dashboard
+        def mint_fund_data():
+            global df_sql_2, df_sql_22, df_sql_32, total_rows_sql2
+            df_sql['ValueDate'] = pd.to_datetime(df_sql['ValueDate'])
+            Datefilter_NAV = (df_sql['ValueDate'] >= Datebefore) & (df_sql['ValueDate'] <= Datenow)
+            df_sql_1 = df_sql.loc[Datefilter_NAV]
+            df_sql_2 = df_sql_1.loc[df_sql_1['Fictive'] == 0]       
+            df_sql_22 = df_sql_2.loc[df_sql_2['Name'].isin([(Fund_Name)])]
+            df_sql_32 = df_sql_22.reset_index(drop=True)
+            total_rows_sql2 = len(df_sql_32["NAV"].axes[0])
+        mint_fund_data()
+
+        #this function creates a dataframe which sets the relevant Mint Tower NAV to 100 and calculates percentage changes
+        def calculate_return_nav():
+            global Mint_return, df_sql_52, df_sql_62, b
+            
+            for i in range(total_rows_sql2):
+                if i == 0:
+                    df_sql_32["NAV1"] = 100.00000000
+                else:
+                    df_sql_32["NAV1"][i] = (df_sql_32["NAV"][i]/(df_sql_32["NAV"][(i-1)]))* df_sql_32["NAV1"][(i-1)]
+                    
+            df_sql_32['%Change'] = ((df_sql_32['NAV1'] -100))
+            r2 = pd.date_range(start=df_sql_32.ValueDate.min(), end=df_sql_32.ValueDate.max())
+            df_sql_42 = df_sql_32.set_index('ValueDate').reindex(r2).fillna(0.0).rename_axis('ValueDate').reset_index()
+            new_2 = df_sql_42['NAV1'].replace(to_replace=0, method='ffill')
+            new22 = new_2.tolist()            
+            df_sql_52 = df_sql_42.assign(NAV1 = new22)            
+            df_sql_62 = df_sql_52        
+            df_sql_62['%Change'] = df_sql_62['%Change'].round(6)       
+            b = (df_sql_62['%Change'].iloc[-1])/100        
+            Mint_return = str(round((b*100),2))
+            #Mint_return = str(f'{(b):+.2%}')
+        calculate_return_nav()
+
+                    
+        
+        
+        #this function creates the right dataframe based on the time interval selected in the dasboard, for up to three different indices
+        def index_data():
+            global total_rows_index, total_rows_index2, total_rows_index3, df_indices_3, df_indices_32, df_indices_33, Index_Name_2, Index_Name_22, Index_Name_23
+            df_indices1 = df_indices.loc[df_indices['Ticker'].isin([(Index_Name)])]
+    
+            if Index_Name2 != "": 
+                df_indices12 = df_indices.loc[df_indices['Ticker'].isin([(Index_Name2)])]
+            else:
+                df_indices12 = df_indices.loc[df_indices['Ticker'].isin([(Index_Name)])]   
+                
+            if Index_Name3 != "":    
+                df_indices13 = df_indices.loc[df_indices['Ticker'].isin([(Index_Name3)])]
+            else: 
+                df_indices13 = df_indices.loc[df_indices['Ticker'].isin([(Index_Name)])]  
+        
+            df_indices1['ValueDate'] = pd.to_datetime(df_indices1['ValueDate'])
+            df_indices12['ValueDate'] = pd.to_datetime(df_indices12['ValueDate'])
+            df_indices13['ValueDate'] = pd.to_datetime(df_indices13['ValueDate'])
+        
+            Datefilter_Index = (df_indices1['ValueDate'] >= Datebefore) & (df_indices1['ValueDate'] <= Datenow)
+            Datefilter_Index2 = (df_indices12['ValueDate'] >= Datebefore) & (df_indices12['ValueDate'] <= Datenow)
+            Datefilter_Index3 = (df_indices13['ValueDate'] >= Datebefore) & (df_indices13['ValueDate'] <= Datenow)
+    
+            df_indices_2 = df_indices1.loc[Datefilter_Index]
+            df_indices_22 = df_indices12.loc[Datefilter_Index2]
+            df_indices_23 = df_indices13.loc[Datefilter_Index3]
+
+            df_indices_3 = df_indices_2.reset_index(drop=True)
+            df_indices_32 = df_indices_22.reset_index(drop=True)
+            df_indices_33 = df_indices_23.reset_index(drop=True)
+            
+            Index_Name_2 = df_indices1['Ticker'].iloc[1]
+            Index_Name_22 = df_indices12['Ticker'].iloc[1]
+            Index_Name_23 = df_indices13['Ticker'].iloc[1]
+            
+            total_rows_index = len(df_indices_2["Value"].axes[0])
+            total_rows_index2 = len(df_indices_22["Value"].axes[0])
+            total_rows_index3 = len(df_indices_23["Value"].axes[0])
+        index_data()
+        
+            
+        #this function creates a dataframe which sets the relevant Mint Tower NAV to 100 and calculates percentage changes
+        def calculate_return_indices():
+            global Index_return, Index_return2, Index_return3, df_indices_5, df_indices_52, df_indices_53, a, a2, a3
+            
+            for i in range(total_rows_index):
+                if i == 0:
+                    df_indices_3["NAV1"] = 100.00000000
+                else:
+                    df_indices_3["NAV1"][i] = (df_indices_3["Value"][i]/(df_indices_3["Value"][(i-1)]))* df_indices_3["NAV1"][(i-1)] 
+            
+            for i in range(total_rows_index2):
+                if i == 0:
+                    df_indices_32["NAV1"] = 100.00000000
+                else:
+                    df_indices_32["NAV1"][i] = (df_indices_32["Value"][i]/(df_indices_32["Value"][(i-1)]))* df_indices_32["NAV1"][(i-1)]     
+            
+            for i in range(total_rows_index3):
+                if i == 0:
+                    df_indices_33["NAV1"] = 100.00000000
+                else:
+                    df_indices_33["NAV1"][i] = (df_indices_33["Value"][i]/(df_indices_33["Value"][(i-1)]))* df_indices_33["NAV1"][(i-1)]     
+        
+        
+            df_indices_3["Name"] = df_indices_3["Ticker"]
+            df_indices_32["Name"] = df_indices_32["Ticker"]
+            df_indices_33["Name"] = df_indices_33["Ticker"]
+        
+            df_indices_3['%Change'] = ((df_indices_3['NAV1'] -100))
+            df_indices_32['%Change'] = ((df_indices_32['NAV1'] -100))
+            df_indices_33['%Change'] = ((df_indices_33['NAV1'] -100))
+        
+            df_indices_4 = df_indices_3
+            df_indices_42 = df_indices_32
+            df_indices_43 = df_indices_33
+        
+            df_indices_4['%Change'] = df_indices_4['%Change'].astype(float)
+            df_indices_42['%Change'] = df_indices_42['%Change'].astype(float)
+            df_indices_43['%Change'] = df_indices_43['%Change'].astype(float)
+        
+            df_indices_5 = df_indices_4
+            df_indices_52 = df_indices_42
+            df_indices_53 = df_indices_43
+                    
+            df_indices_5['%Change'] = df_indices_5['%Change'].round(6)
+            df_indices_52['%Change'] = df_indices_52['%Change'].round(6)
+            df_indices_53['%Change'] = df_indices_53['%Change'].round(6)
+    
+            a = (df_indices_5['%Change'].iloc[-1])/100
+            a2 = (df_indices_52['%Change'].iloc[-1])/100
+            a3 = (df_indices_53['%Change'].iloc[-1])/100
+        
+            Index_return = str(round((a*100),2))
+            Index_return2 = str(round((a2*100),2))
+            Index_return3 = str(round((a3*100),2))
+            
+            #Index_return = str(f'{(a):+.2%}')
+            #Index_return2 = str(f'{(a2):+.2%}')
+            #Index_return3 = str(f'{(a3):+.2%}')
+        calculate_return_indices()
+    
+        
+        #this function creates the lines and notations for the given Mint Fund and selected indices, also there is a legend added to the plot
+        #which can be selected within the dashboard
+        def create_figure():
+            global fig
+            
+            fig = go.Figure()
+            color1 = '#ffa500'
+            color2 = '#CD5555'
+            color3 = '#CDC8B1'
+            #color3 = '#CDB5CD'
+    
+
+            
+# =============================================================================
+#             if Text == 'WITH TEXT':
+#                 fig.add_annotation(x= str(df_sql_52['ValueDate'].iloc[-1]),
+#                                    y= str(df_sql_52['NAV1'].iloc[-1]),
+#                                    text =(Fund_Name) + (Mint_return),
+#                                    font = dict(color = 'rgb(0,0,225)'),
+#                                    showarrow = False,
+#                                    yanchor = 'bottom',
+#                                    xanchor = 'left')
+# =============================================================================
+            
+            
+            
+            if Index_Name != "":
+                fig.add_trace(
+                                go.Scatter(
+                                    x=df_indices_3['ValueDate'],
+                                    y=df_indices_3['NAV1'],
+                                    mode='lines',
+    
+                                    name=df_indices_3['Name'][1],
+                                    line=dict(
+                                        color=(color1),
+                                        width=3,
+                                    ),
+                                    ),
+                                )
+                
+# =============================================================================
+#                 if Text == 'WITH TEXT':
+#                     fig.add_annotation(x= str(df_indices_3['ValueDate'].iloc[-1]),
+#                                        y= str(df_indices_3['NAV1'].iloc[-1]),
+#                                        text =(Index_Name_2) + (Index_return),
+#                                        font = dict(color = color1),
+#                                        showarrow = False,
+#                                        yanchor = 'bottom',
+#                                        xanchor = 'left')
+# =============================================================================
+        
+    
+               
+            
+            if Index_Name2 != "":
+                fig.add_trace(
+                                    go.Scatter(
+                                    x=df_indices_32['ValueDate'],
+                                    y=df_indices_32['NAV1'],
+                                    mode='lines',
+    
+                                    name=df_indices_32['Name'][1],
+                                    line=dict(
+                                        color=(color2),
+                                        width=3,
+                                    ),
+                                    ),
+                                )
+# =============================================================================
+#                 if Text == 'WITH TEXT':
+#                     fig.add_annotation(x= str(df_indices_32['ValueDate'].iloc[-1]),
+#                                        y= str(df_indices_32['NAV1'].iloc[-1]),
+#                                        text =(Index_Name_22) + (Index_return2),
+#                                        font = dict(color = color2),
+#                                        showarrow = False,
+#                                        yanchor = 'bottom',
+#                                        xanchor = 'left')
+# =============================================================================
+                
+           
+            if Index_Name3 != "":
+                fig.add_trace(
+                                go.Scatter(
+                                    x=df_indices_33['ValueDate'],
+                                    y=df_indices_33['NAV1'],
+                                    mode='lines',           
+                                    name=df_indices_33['Name'][1],
+                                    line=dict(
+                                        color=(color3),
+                                        width=3,
+                                    ),
+                                    ),
+                                )
+# =============================================================================
+#                 if Text == 'WITH TEXT':
+#                     fig.add_annotation(x= str(df_indices_33['ValueDate'].iloc[-1]),
+#                                        y= str(df_indices_33['NAV1'].iloc[-1]),
+#                                        text =(Index_Name_23) + (Index_return3),
+#                                        font = dict(color = color3),
+#                                        showarrow = False,
+#                                        yanchor = 'bottom',
+#                                        xanchor = 'left')
+# =============================================================================
+                    
+            fig.add_trace(
+                            go.Scatter(
+                                x=df_sql_52['ValueDate'],
+                                y=df_sql_52['NAV1'],
+                                mode='lines', 
+                                name=df_sql_52['Name'][0],
+                                line=dict(
+                                    color='#0a4be1',
+                                    width=3,
+                                ),
+                                ),
+                            )
+                
+
+
+            #this functoin creates a legend in case this is selected in the dashboard
+            if Legend == "WITH LEGEND" and Axis_color == "Gold color":
+                fig.update_layout(showlegend=True, font_size=15, font_color = 'RGB(184, 134, 11)', paper_bgcolor = 'rgba(0, 0, 0, 0)', plot_bgcolor = 'rgba(0, 0, 0, 0)', grid_xgap =0, grid_ygap=0,
+                                  xaxis =dict(showgrid = False, tickangle=-45), yaxis=dict(gridcolor = 'RGB(184, 134, 11)'))
+            elif Legend == "WITH LEGEND" and Axis_color == "White color":
+                fig.update_layout(showlegend=True, font_size=15, font_color = "white", paper_bgcolor = 'rgba(0, 0, 0, 0)', plot_bgcolor = 'rgba(0, 0, 0, 0)', grid_xgap =0, grid_ygap=0,
+                                  xaxis =dict(showgrid = False, tickangle=-45), yaxis=dict(gridcolor = 'rgba(0, 0, 0, 0)'))
+            
+            elif Legend == "NO LEGEND" and Axis_color == "Gold color":
+                fig.update_layout(showlegend=False, font_size=15, font_color = 'RGB(184, 134, 11)', paper_bgcolor = 'rgba(0, 0, 0, 0)', plot_bgcolor = 'rgba(0, 0, 0, 0)', grid_xgap =0, grid_ygap=0,
+                                  xaxis =dict(showgrid = False, tickangle=-45), yaxis=dict(gridcolor = 'RGB(184, 134, 11)'))
+            elif Legend == "NO LEGEND" and Axis_color == "White color":
+                fig.update_layout(showlegend=False, font_size=15, font_color = "white", paper_bgcolor = 'rgba(0, 0, 0, 0)', plot_bgcolor = 'rgba(0, 0, 0, 0)', grid_xgap =0, grid_ygap=0,
+                                  xaxis =dict(showgrid = False, tickangle=-45), yaxis=dict(gridcolor = 'rgba(0, 0, 0, 0)'))
+        create_figure()        
+       
+        #creating general information based on the prior code to make a fundamental basis for the statistics calculations
+        def calculating_statistics():
+            global returnmtaf, volatilitymtaf, volatilityindex_, volatilityindex2_, volatilityindex3_, correlation1a, correlation1b, correlation1c
+            
+            returnmtaf = Mint_return
+            
+            datefilter_alldays = df_sql_52[['ValueDate']]
+
+            #for the mint fund, the dataframe should be a 10 day dataframe with the NAV1's calculted form 100 onwards
+            df_fund1 = (df_sql_52.loc[df_sql_52['NAV'] != 0]).reset_index()
+            #calculating the return of the mint fund in a specific period based on the calculation below, perform calculation from second row
+            df_fund1['Return'] = 0.0000000000
+            for i in df_fund1.index:
+                if i > 0:
+                    df_fund1['Return'][i] = ((df_fund1['NAV1'][i] - df_fund1['NAV1'][i-1]) / df_fund1['NAV1'][i-1]) * 100
+                else:
+                    df_fund1['Return'][i] = 0
+            
+            #calculating the return from the indices selected in the dashboard. The dataframe has to match the dataframe of the mint fund
+            #but because the weekends are off, the data is moved downwards, so saterday price is actual friday price, sunday price is actual friday price etc.
+            df_indices_5['Return'] = 0.0000000000
+            df_indices_52['Return'] = 0.0000000000
+            df_indices_53['Return'] = 0.0000000000
+
+            df_index1 = pd.merge(datefilter_alldays,df_indices_5, how='outer', on='ValueDate')          
+            df_index2 = pd.merge(datefilter_alldays,df_indices_52, how='outer', on='ValueDate')
+            df_index3 = pd.merge(datefilter_alldays,df_indices_53, how='outer', on='ValueDate')
+            
+            df_index1 = df_index1.fillna(0)
+            df_index1 = df_index1.replace(to_replace=0, method='ffill')
+
+            df_index2 = df_index2.fillna(0)
+            df_index2 = df_index2.replace(to_replace=0, method='ffill')
+
+            df_index3 = df_index3.fillna(0)
+            df_index3 = df_index3.replace(to_replace=0, method='ffill')
+            
+            datefilter_10day = df_fund1[['ValueDate']]
+            index1_new = pd.merge(datefilter_10day,df_index1, how='inner', on='ValueDate')
+            
+            #calculating the return of the indices based on the NAV1 value which is set on 100 for the given period
+            for i in index1_new.index:
+                if i > 0:
+                    index1_new['Return'][i] = ((index1_new['NAV1'][i] - index1_new['NAV1'][i-1]) /index1_new['NAV1'][i-1] * 100)
+                else:
+                    index1_new['Return'][i] = 0
+            
+            index1_new['Return'] = index1_new['Return'].replace(to_replace=0, method='ffill')
+            
+            index2_new = pd.merge(datefilter_10day,df_index2, how='inner', on='ValueDate')
+            
+            for i in index2_new.index:
+                if i > 0:
+                    index2_new['Return'][i] = ((index2_new['NAV1'][i] - index2_new['NAV1'][i-1]) /index2_new['NAV1'][i-1] * 100)
+                else:
+                    index2_new['Return'][i] = 0
+            
+            index2_new['Return'] = index2_new['Return'].replace(to_replace=0, method='ffill')
+            
+            index3_new = pd.merge(datefilter_10day,df_index3, how='inner', on='ValueDate')
+            
+            for i in index3_new.index:
+                if i > 0:
+                    index3_new['Return'][i] = ((index3_new['NAV1'][i] - index3_new['NAV1'][i-1]) /index3_new['NAV1'][i-1] * 100)
+                else:
+                    index3_new['Return'][i] = 0
+            
+            index3_new['Return'] = index3_new['Return'].replace(to_replace=0, method='ffill')
+
+            #creating the column to do the calculation for the volatility and for the correlation, since we have 10 day data, we use 36 period
+            #to annualize the volatility of the period
+            column_1 = df_fund1["Return"]
+            column_21 = index1_new["Return"]
+            column_22 = index2_new["Return"]
+            column_23 = index3_new["Return"]
+
+            correlation1a = column_1.corr(column_21)
+            correlation1b = column_1.corr(column_22)
+            correlation1c = column_1.corr(column_23)
+
+            
+            std1 = np.std(column_1)* math.sqrt(36)
+            std2 = np.std(column_21)* math.sqrt(36)
+            std22 = np.std(column_22)* math.sqrt(36)
+            std23 = np.std(column_23)* math.sqrt(36)
+    
+            volatilitymtaf_ = std1
+            volatilityindex_ = std2
+            volatilityindex2_ = std22
+            volatilityindex3_ = std23
+            volatilitymtaf = str(round(volatilitymtaf_,2))
+            
+
+        calculating_statistics()
+        
+        #this function fills in the calculations in the table for the relevant indices and runs the graph
+        #the statistics are: return, volatiltiy and correlation
+        def add_statistics_table():
+            global returnindex, volatilityindex, correlation1, returnindex2, volatilityindex2, correlation2, returnindex3, volatilityindex3, correlation3
+            
+            
+            if Index_Name != "":
+                returnindex = Index_return
+                volatilityindex = str(round(volatilityindex_,2))
+                correlation1 = str(round(correlation1a,2))
+    
+            else: 
+                returnindex = "-"
+                volatilityindex = "-"
+                correlation1 = '-'
+                   
+            if Index_Name2 != "":
+                returnindex2 = Index_return2          
+                volatilityindex2 = str(round(volatilityindex2_,2))
+                correlation2 = str(round(correlation1b,2))
+    
+            else:
+                returnindex2 = "-"       
+                volatilityindex2 = "-"
+                correlation2 = "-"
+                    
+            if Index_Name3 != "":
+                returnindex3 = Index_return3
+                volatilityindex3 = str(round(volatilityindex3_,2))           
+                correlation3 = str(round(correlation1c,2))
+    
+            else:
+                returnindex3 = "-"
+                volatilityindex3 = "-"
+                correlation3 = "-"
+
+        add_statistics_table()
+        
+        
+        return fig, returnmtaf, returnindex, returnindex2, returnindex3, volatilitymtaf, volatilityindex, volatilityindex2, volatilityindex3, correlation1, correlation2, correlation3
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
